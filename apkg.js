@@ -11,6 +11,14 @@ var deckNotes;
 
 // Huge props to http://stackoverflow.com/a/9507713/500207
 function tabulate(datatable, columns, containerString) {
+
+    //replace Anki [sound:x.mp3] tag with HTML <audio> tag for all cards
+    for (i in datatable) {
+      for(x in datatable[i]) {
+        datatable[i][x] = datatable[i][x].replace(/\[sound:(.*?)\]/g, '<audio controls src="$1" />');
+      }
+    }
+    
     var table = d3.select(containerString).append("table"),
         thead = table.append("thead"), tbody = table.append("tbody");
 
@@ -88,7 +96,7 @@ function sqlToTable(uInt8ArraySQLdb) {
     }
 }
 
-function parseImages(imageTable,unzip,filenames){
+function parseMedia(imageTable,unzip,filenames){
     var map = {};
     for (var prop in imageTable) {
       if (filenames.indexOf(prop) >= 0) {
@@ -105,6 +113,15 @@ function parseImages(imageTable,unzip,filenames){
         }
           return this.src;
       });
+      d3.selectAll("audio")
+        .attr("src", function(d,i) {
+          //Some filenames may be encoded. Decode them beforehand.
+          var key = decodeURI(this.src.split('/').pop());
+          if (key in map){
+            return "data:audio/mpeg;base64,"+map[key];
+          }
+            return this.src;
+        });
 }
 
 function converterEngine (input) { // fn BLOB => Binary => Base64 ?
@@ -132,7 +149,7 @@ function ankiBinaryToTable(ankiArray, options) {
               var bb = new Blob([new Uint8Array(plainmedia)]);
               var f = new FileReader();
               f.onload = function(e) {
-                parseImages(JSON.parse(e.target.result),unzip,filenames);
+                parseMedia(JSON.parse(e.target.result),unzip,filenames);
               };
               f.readAsText(bb);
           }
