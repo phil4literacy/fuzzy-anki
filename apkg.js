@@ -18,7 +18,7 @@ function tabulate(datatable, columns, containerString) {
         datatable[i][x] = datatable[i][x].replace(/\[sound:(.*?)\]/g, '<audio controls src="$1" />');
       }
     }
-    
+
     var table = d3.select(containerString).append("table"),
         thead = table.append("thead"), tbody = table.append("tbody");
 
@@ -51,6 +51,50 @@ function tabulate(datatable, columns, containerString) {
 
     return table;
 }
+
+function loadIntoStorage(datatable, columns) {
+
+  //replace Anki [sound:x.mp3] tag with HTML <audio> tag for all cards
+  for (i in datatable) {
+    for(x in datatable[i]) {
+      //datatable[i][x] = datatable[i][x].replace(/\[sound:(.*?)\]/g, '<audio controls src="$1" />');
+      datatable[i][x] = datatable[i][x].replace(/\[sound:(.*?)\]/g, '$1');
+      datatable[i][x] = datatable[i][x].replace(/<img[^>]+src="?([^"\s]+)"?\s*\/>/g, '$1');
+    }
+  }
+
+  var wordlist = new Array();
+  var id = 11;
+  for (i in datatable) {
+    wordlist[i] = {};
+    wordlist[i]['_id'] = +id + +i;
+    wordlist[i]['date'] = 0;
+    wordlist[i]['step'] = -1;
+
+    var x = 0;
+    for(data in datatable[i]) {
+
+      if(x == 0)
+      {
+        alert(datatable[i][data]);
+        wordlist[i]['word'] = datatable[i][data];
+      }
+      if(x == 1)
+      {
+        wordlist[i]['translate'] = datatable[i][data];
+      }
+      x++;
+    }
+  }
+
+  var lw = LW.BoxOfQuestions(LW.LWdb('german-family'));
+  lw.db.loadWords(wordlist);
+
+  for (var key in localStorage) {
+    console.log(key + ':' + localStorage[key]);
+  }
+}
+
 
 function sqlToTable(uInt8ArraySQLdb) {
     var db = new SQL.Database(uInt8ArraySQLdb);
@@ -91,7 +135,8 @@ function sqlToTable(uInt8ArraySQLdb) {
             d3.select("#anki").append("h2").text(model.name);
             var deckId = "deck-" + idx;
             d3.select("#anki").append("div").attr("id", deckId);
-            tabulate(model.notes, model.fieldNames, "#" + deckId);
+            //tabulate(model.notes, model.fieldNames, "#" + deckId);
+            loadIntoStorage(model.notes, model.fieldNames);
         });
     }
 }
@@ -136,25 +181,80 @@ function converterEngine (input) { // fn BLOB => Binary => Base64 ?
     return base64;
 };
 
-function ankiBinaryToTable(ankiArray, options) {
-    var compressed = new Uint8Array(ankiArray);
-    var unzip = new Zlib.Unzip(compressed);
-    var filenames = unzip.getFilenames();
-    if (filenames.indexOf("collection.anki2") >= 0) {
-        var plain = unzip.decompress("collection.anki2");
-        sqlToTable(plain);
-        if (options && options.loadImage){
-          if (filenames.indexOf("media") >= 0) {
-              var plainmedia = unzip.decompress("media");
-              var bb = new Blob([new Uint8Array(plainmedia)]);
-              var f = new FileReader();
-              f.onload = function(e) {
-                parseMedia(JSON.parse(e.target.result),unzip,filenames);
-              };
-              f.readAsText(bb);
+function listDir(path, callback){
+  window.resolveLocalFileSystemURL(path,
+    function (fileSystem) {
+      var reader = fileSystem.createReader();
+      reader.readEntries(
+        function (entries) {
+          var filenames = [];
+          for (i=0; i<entries.length; i++) {
+              console.log(entries[i].name);
+              filenames.push(entries[i].name);
           }
+          callback(filenames);
+        },
+        function (err) {
+          console.log(err);
         }
+      );
+    }, function (err) {
+      console.log(err);
     }
+  );
+};
+
+function getFileText(fileEntry, type, callback) {
+  window.resolveLocalFileSystemURL(fileEntry, function(fileEntry) {
+        fileEntry.file(function(file) {
+
+            var reader = new FileReader();
+
+            reader.onloadend = function(e) {
+                callback(this.result);
+            }
+            if(type == "binary"){
+              reader.readAsBinaryString(file);
+            }
+            else {
+              reader.readAsText(file);
+            }
+
+        });
+       }, function(err) {
+           console.log("failed to read the file" + err);
+         });
+}
+
+function ankiBinaryToTable(ankiArray, options) {
+    //var compressed = new Uint8Array(ankiArray);
+    //var unzip = new Zlib.Unzip(compressed);
+
+    zip.unzip(ankiArray, "/sdcard/Download/unzipped/", function(x, options){
+      listDir("file:///sdcard/Download/unzipped/", function(filenames ){
+
+        if (filenames.indexOf("collection.anki2") >= 0) {
+            //var plain = unzip.decompress("collection.anki2");
+            //zip.unzip("/sdcard/Download/unzipped/collection.anki2", "/sdcard/Download/unzipped/collection", function(x, options){
+            getFileText("file:///sdcard/Download/unzipped/collection.anki2", "binary", function(plain) {
+            sqlToTable(plain);
+            /*
+            if (options && options.loadImage){
+              if (filenames.indexOf("media") >= 0) {
+                  var plainmedia = unzip.decompress("media");
+                  var bb = new Blob([new Uint8Array(plainmedia)]);
+                  var f = new FileReader();
+                  f.onload = function(e) {
+                    parseMedia(JSON.parse(e.target.result),unzip,filenames);
+                  };
+                  f.readAsText(bb);
+              }
+            }
+            */
+          });
+        }
+      });
+  });
 }
 
 function ankiURLToTable(ankiURL, options, useCorsProxy, corsProxyURL) {
@@ -269,6 +369,7 @@ function displayRevlogOutputOptions() {
         .click(function() { updateModelChoices(); });
     updateModelChoices();
 }
+
 
 function getSelectedDeckIDs() {
     var selectedDecks = _.pluck($('#viz-decks-list input:checked'), 'id');
